@@ -1,0 +1,304 @@
+---
+title: "HW$- Q1"
+author: "Safia 11012371"
+date: "2022-12-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r}
+library(e1071)
+library(carData)
+library(zoo)
+library(sandwich)
+library(ggplot2)
+library(gridExtra)
+library(lmtest)
+library(readxl)
+library(readr)
+library(car)
+library(lattice)
+library(survival)
+library(Formula)
+library(nortest)
+library(AER)
+library(broom)
+library(xtable)
+library(knitr)
+library(tidyr)
+library(stargazer)
+library(systemfit)
+library(censReg)
+library(TTR); library(orcutt); library(tseries); library(forecast); library(nlWaldTest)
+library(dynlm); library(pdfetch); library(truncreg);library(corrplot)
+library(gains);library(caret);library(pROC)
+```
+
+
+Q1 PART A 
+```{r}
+library(readr)
+ub <- read_csv("~/Desktop/DM /a4/UniversalBank.csv")
+
+#Checking the charactersitics of the dataset
+library(skimr)
+skim(ub)
+#Summary of the varaiables 
+summary(ub)
+
+library(Hmisc)
+#Missing Values 
+describe(ub)
+
+library(Amelia)
+missmap(ub)
+#No missing Values 
+
+library(fastDummies)
+ub <- dummy_cols(ub , select_columns = 'Education', remove_selected_columns = TRUE)
+#First I tried to do it with as.factor for education but it was not working for Q1 part a because the variables given in that data frame has removed the original variable education and has dummies, so it wasn't giving the correct results. So i created the dummies for it. Whereas for binary categoricals varaiables I let it that way.
+
+```
+
+
+
+```{r}
+#Removing varaiables ID and Zipcode from the dataset 
+ub.subset <- ub[-c(1,5)]
+#Changing this into integer 
+ub.subset$CCAvg <- as.integer(ub.subset$CCAvg)
+
+# ub.subset[7:14] <- lapply(ub.subset[7:14], as.factor)
+
+str(ub.subset)
+```
+```{r}
+#Data Partion , Trainning dataset 60% and Validation 40%
+set.seed(111)
+train.index <- sample(row.names(ub.subset), 0.6*dim(ub.subset)[1])
+valid.index <- setdiff(row.names(ub.subset), train.index)
+train.df <- ub.subset[train.index, ]
+valid.df <- ub.subset[valid.index, ]
+```
+
+```{r}
+#Giving varaiables names before normalizing 
+train.norm.df <- train.df
+valid.norm.df <- valid.df
+ub.subset.norm.df <- ub.subset
+
+#Creating the new test data set provided in the question 1 to check a person with all these characteristics will belong from which class 
+new.df <- data.frame (Age = 40, Experience = 10, Income = 84, Family = 2, CCAvg = 2, 
+Education_1 = 0, Education_2 = 1, Education_3 = 0, Mortgage = 0, Securities_Account = 0, CD_Account 
+= 0, Online = 1, Credit_Card = 1)
+
+#Normalizing the datasets created using the above varaiables
+norm.values <- preProcess(train.df[, 1:6], method=c("center", "scale"))
+#Normalizing Trainning data 
+train.norm.df[, 1:6] <- predict(norm.values, train.df[, 1:6])
+#Normalizing Validation data 
+valid.norm.df[, 1:6] <- predict(norm.values, valid.df[, 1:6])
+#Normalizing Original data (Trainning+Validation)
+ub.subset.norm.df[, 1:6] <- predict(norm.values, ub.subset[, 1:6])
+##Normalizing test data created in the part a 
+new.norm.df <- predict(norm.values, new.df)
+
+#Using knn technique to find out from which class this person belong when the nearest neighbour k is selected as 1.
+library(FNN)
+knn1 <- knn(train = train.norm.df[,-c(7)], test = new.norm.df,
+          cl = train.norm.df$`Personal Loan`, k = 1)
+row.names(train.df)[attr(knn1, "nn.index")]
+knn1
+
+
+nn.at <- attributes(knn1)
+nn.at
+
+
+#Checking this row characteristics 
+train.norm.df[1989,]
+new.norm.df[,]
+```
+#For the k=1, then according to 1 single nearest neighnour, this person will be classified as 1, means that the person will accept the personal loan offer when targeted via campaigns, having said that, in turn the customer having all these characteristics will be accepting the loan offer i.e classified as 1 because he has similar predictor values to this person as of it's 1 neraest neighbour which is at index 1989 in the trainning dataset.
+#the attributes shows that the 1 nearest neighbour of the predicted observation is 1989 at the value and the distance between two of them is 1.509.
+
+Q1 part B
+```{r}
+#Avoiding over fitting in the knn by chossing the best k value with higher accuracy we need to keep these points in mind. The general rule to choose best k is to take square root of the number of sample in the training data set, considering no of sample and noise on the sample is important.For e.g If i have a very large sample size and i take 2 as k then we will get over fitting, even we don't have alot of noise. SO looking at these 2 is very important.And when we have a lot of noise in our data, then it is important to choose bigger value of the k to increase the no of neighbors,so that we have big region to consider and you have buffer to make safe decisions.
+
+#There is no statical calculation of the optimal k though and also the squart root method is also not relaibale but it's a great step to start with. Also our data is not very big so we can find using function and then plotting it to check first with the squar root no and then without to see the difference in the results.
+
+sqrt(nrow(train.norm.df))
+#The value we get is 54.77, so lets take 55 as it is odd no too.
+
+knn55 <- knn(train=train.norm.df[,-c(7)], test=valid.norm.df[,-c(7)],  cl = train.norm.df$`Personal Loan`, k = 55)
+accuracy.df55<- confusionMatrix(factor(knn55), factor(valid.norm.df$`Personal Loan`))$overall[1]
+accuracy.df55
+
+#The accuracy comes out 92.85%
+
+# initialize a data frame with two columns: k, and accuracy.
+accuracy.df <- data.frame(k = seq(1, 60, 1), accuracy = rep(0, 60))
+
+# compute knn for different k on validation.
+dim(valid.norm.df)
+
+library(caret)
+for(i in 1:60) 
+{knn.pred <- knn(train.norm.df[,-c(7)], valid.norm.df[,-c(7)], cl = train.norm.df$`Personal Loan`, k = i)
+accuracy.df[i, 2] <- confusionMatrix(factor(knn.pred), factor(valid.norm.df$`Personal Loan`))$overall[1]}
+
+
+accuracy.df
+round((accuracy.df[i, 2]),4)
+confusionMatrix(factor(knn.pred), factor(valid.norm.df$`Personal Loan`))
+
+#If we want to predict the class 1 
+confusionMatrix(factor(knn.pred), factor(valid.norm.df$`Personal Loan`), positive = "1")
+
+
+#Using this we get an model accuracy of 92.6%
+which.max(accuracy.df$accuracy)
+which.min(accuracy.df$accuracy)
+
+#Plot graph to see at what k value we get the higher accuracy 
+plot(accuracy.df, type = "b", xlab="K-Values", ylab = "Accuracy levels")
+
+#The graph also shows that we get highest accuracy at k=3 
+#It means to choose that whether a person will accept the loan offer or not we should consider our 3 nearest neighbors, we should see characteristics or properties of all these 3 neighbors and then decide whether a person will accept the loan offer or not.
+
+#By creating an accuracy table running on the validation dataset, we get accuracy of the predictions for different values of k which is between 1 to 60.By looking at the results,max accuracy we are getting is when k=3, the accuracy comes out to be 0.9640,also it is an odd number which ensures that there is no tie b/w 2 and we can surely said that we will not get over fitted or under fitted results.Hence the optimal k to choose is 3. 
+
+```
+
+Q1 part C 
+
+```{r}
+#Confusionmatrix for the validation data set choosing k=3
+knn.pred2 <- knn(train.norm.df[,-c(7)], valid.norm.df[,-c(7)], cl = train.norm.df$`Personal Loan`, k = 3, prob=TRUE)
+# levels(knn.pred2)
+# levels(valid.norm.df$`Personal Loan`)
+
+confusionMatrix(as.factor(knn.pred2),as.factor(valid.norm.df$`Personal Loan`), positive = "1")
+
+#The overall accuracy of the model for 3 k nearest neighbors is 96.4% but looking at our class of interest that is 1, who accepts the loan offer is predicting only 63.3%, by looking at the sensitivity rate i.e 119 are correctly classified as the one who will accept the loan offer and where as 1809 are correctly classified as one who will not accept the loan offer.
+```
+
+Q1 part D
+
+```{r}
+##Was checking the answer to see, that without normalizing the data we get opposit class, 1.
+# new.df22 <- data.frame(Age = 40, Experience = 10, Income = 84, Family = 2, CCAvg = 2, Education_1 = 0, Education_2 = 1, Education_3 = 0, Mortgage = 0, Securities.Account = 0, CD.Account = 0, Online = 1, CreditCard = 1)
+# 
+# knn22 <- knn(train = train.norm.df[,-c(7)], test = new.df22,
+#           cl = train.norm.df$`Personal Loan`, k = 3)
+# knn22
+```
+
+
+```{r}
+new.df2 <- data.frame(Age = 40, Experience = 10, Income = 84, Family = 2, CCAvg = 2, 
+Education_1 = 0, Education_2 = 1, Education_3 = 0, Mortgage = 0, Securities_Account = 0, CD_Account 
+= 0, Online = 1,Credit_Card = 1) 
+
+##Normalizing test data
+new.norm.df2 <- predict(norm.values, new.df2)
+
+
+#Using knn technique to find out from which class this person belongs using the optimal k which we found above as k=3
+knn.new.pred <- knn(train = train.norm.df[,-c(7)], test = new.norm.df2,
+          cl = train.norm.df$`Personal Loan`, k = 3)
+row.names(train.df)[attr(knn.new.pred, "nn.index")]
+knn.new.pred
+#We use optimal k value = 3 to predict that person posses the characteristics we put in the data set will belong to class 1 or class 0. And the result shows that the person with these characteristics, when k is set to 3, the classes of 3 closest data points are considered and it is predicted to the majority class which is class 0, Hence we say that the person with these features belong to class 0, and he will not accepts the personal loan offer. 
+
+```
+
+Q1 part E
+```{r}
+#creating new data set in which I will partition it into trainning dataset 50%, validation into 30% and testing into 20%
+
+# Set some input variables to define the splitting.
+# The data frame , split into training, validation, and test.
+df <- ub.subset
+
+# Input 2. Setting the fractions of the dataframe for splitting into training, 
+# validation, and test.
+fractionTraining   <- 0.50
+fractionValidation <- 0.30
+fractionTest       <- 0.20
+
+# Computing the sample sizes.
+sampleSizeTraining   <- floor(fractionTraining   * nrow(df))
+sampleSizeValidation <- floor(fractionValidation * nrow(df))
+sampleSizeTest       <- floor(fractionTest       * nrow(df))
+
+# Create the randomly-sampled indices for the dataframe. 
+#Here I am using setdiff() to avoid overlapping subsets of indices.
+indicesTraining    <- sort(sample(seq_len(nrow(df)), size=sampleSizeTraining))
+indicesNotTraining <- setdiff(seq_len(nrow(df)), indicesTraining)
+indicesValidation  <- sort(sample(indicesNotTraining, size=sampleSizeValidation))
+indicesTest        <- setdiff(indicesNotTraining, indicesValidation)
+
+# Finally, output the three dataframes for training, validation and test.
+dftraining   <- df[indicesTraining, ]
+dfvalidation <- df[indicesValidation, ]
+dftest       <- df[indicesTest, ]
+
+#Checking the dimension and length of every dataset to avoid errors 
+dim(df)
+dim(dftraining)
+dim(dfvalidation)
+dim(dftest)
+
+#Normalizing data for trainning, validation and test
+norm.values.df <- preProcess(dftraining[, -c(7)], method=c("center", "scale"))
+dftraining[, -c(7)] <- predict(norm.values.df, dftraining[, -c(7)])
+dfvalidation[, -c(7)] <- predict(norm.values.df, dfvalidation[, -c(7)])
+dftest [,-c(7)] <- predict(norm.values.df, dftest [,-c(7)])
+
+#Running knn for k=3
+#Training dataset 
+knn.train.df <- knn(train = dftraining[, -c(7)], test = dftraining[, -c(7)], cl = dftraining$`Personal Loan`, k=3, prob = "TRUE")
+#Validation Dataset
+knn.valid.df <- knn(train = dftraining[, -c(7)],test = dfvalidation[, -c(7)], cl = dftraining$`Personal Loan`, k=3, prob=TRUE)
+#Test Dataset
+knn.test.df <- knn(train = dftraining[, -c(7)],test = dftest [,-c(7)], cl = dftraining$`Personal Loan`, k=3, prob=TRUE)
+
+```
+
+```{r}
+#Confusion matrix - Training 
+confusionMatrix(as.factor(knn.train.df),as.factor(dftraining$`Personal Loan`), positive = "1")
+
+#The confusion matrix result shows 97.48% accuracy of the over all model running on trainning dataset, because our intereset class is 1, the people who accepts the personal loan offer, so we set positive class as 1 and we get the sensitivity rate(True positive) to be predicted 74.36% correctly.
+```
+
+```{r}
+#Confusion matrix of Validation 
+confusionMatrix(as.factor(knn.valid.df), as.factor(dfvalidation$`Personal Loan`), positive = "1")
+
+#The confusion matrix result shows 95.56% accuracy of the over all model running on validation dataset, because our interset class is 1, the people who accepts the personal loan offer, so we set positive class as 1 and we get the sensitivity rate(True positive) to be predicted 59.28% correctly. By comparing the results with the trainning we can say that the accuracy is decreased as well as sensitivity.
+```
+
+```{r}
+#Confusion matrix of Test  
+confusionMatrix(as.factor(knn.test.df), as.factor(dftest$`Personal Loan`), positive = "1")
+
+#The confusion matrix result shows 96.1% accuracy of the over all model running on test dataset, because our interest class is 1, the people who accepts the personal loan offer, so we set positive class as 1 and we get the sensitivity rate(True positive) to be predicted 65.09% correctly. By comparing the results with the trainning we can say that the accuracy is decreased as well as sensitivity but the drop is minimal. So we can say that our model is a good fit and there is no overfitting.
+```
+#From the above results we can compute that the overall accuracy of the model is good but comparing these 
+#Trainningset   Accuracy : 0.9748  
+#Validationset   Accuracy : 0.956 
+#Testset        Accuracy : 0.961 
+#We know that on trainning the accuracy will always be higher because the model is build on it whereas the good thing is that the overall acuuracy still remains high but less than trainning but the drop is minimal. Whereas the important thing after looking at the accuracy is the senstivity rate for the class you are intreseted in,  here our interset class is 1 so we compare senstivity rate of all 
+#Trainningset   Sensitivity : 0.7436  
+#Validationset   Sensitivity : 0.59286 
+#Testset        Sensitivity : 0.6509
+#So we can see the overall accuracy of the model and senstivity rate of testset is better than validation set, keeping training set as higher.So we can say that the model has good predictive performance and the classes are more accurately classified in training dataset.
+#Hence the model is a goodfit and there seems no overfitting issue.
+
